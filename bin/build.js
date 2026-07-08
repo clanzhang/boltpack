@@ -7,7 +7,7 @@ import { logger } from '../src/utils/logger.js';
 const program = new Command();
 
 program
-  .name('my-build')
+  .name('boltpack')
   .description('A fast frontend build CLI tool based on Parcel Node API')
   .argument('<entry>', 'Entry file to build (e.g., src/index.html)')
   .option('-m, --mode <mode>', 'Build mode: development or production', 'production')

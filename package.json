@@ -1,14 +1,14 @@
 {
-  "name": "my-build",
+  "name": "boltpack",
   "version": "0.0.1",
   "description": "A fast frontend build CLI tool based on Parcel Node API and Lightning CSS",
   "main": "src/build.js",
   "bin": {
-    "my-build": "./bin/my-build.js"
+    "boltpack": "./bin/build.js"
   },
   "type": "module",
   "scripts": {
-    "test": "node bin/my-build.js test/fixtures/index.html"
+    "test": "node bin/build.js test/fixtures/index.html"
   },
   "dependencies": {
     "@parcel/core": "^2.12.0",
