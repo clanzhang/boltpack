@@ -4,6 +4,7 @@ import { Command } from 'commander';
 import { build } from '../src/build.js';
 import { dev } from '../src/dev.js';
 import { clean } from '../src/clean.js';
+import { loadConfig } from '../src/config.js';
 import { logger } from '../src/utils/logger.js';
 
 const program = new Command();
@@ -13,7 +14,21 @@ program
   .description('A fast frontend build & dev CLI tool based on Parcel Node API and Lightning CSS')
   .version('0.0.1');
 
-// ── Default command: boltpack <entry>  (build) ──────────────────────
+async function getMergedConfig(cliOptions, entry = null) {
+  const fileConfig = await loadConfig();
+  const noCache = cliOptions.cache === false ? true : (fileConfig.noCache ?? false);
+
+  return {
+    ...fileConfig,
+    ...(entry ? { entry } : {}),
+    ...(cliOptions.mode !== undefined ? { mode: cliOptions.mode } : {}),
+    ...(cliOptions.outDir !== undefined ? { outDir: cliOptions.outDir } : {}),
+    ...(cliOptions.port !== undefined ? { port: parseInt(cliOptions.port, 10) } : {}),
+    ...(cliOptions.analyze !== undefined ? { analyze: cliOptions.analyze } : {}),
+    noCache,
+  };
+}
+
 program
   .argument('[entry]', 'Entry file to build (e.g., src/index.html)')
   .option('-m, --mode <mode>', 'Build mode: development or production', 'production')
@@ -26,23 +41,30 @@ program
       return;
     }
 
-    const { mode, outDir, cache, analyze } = options;
-    const noCache = !cache;
+    const config = await getMergedConfig(options, entry);
 
-    if (!['development', 'production'].includes(mode)) {
-      logger.error(`Invalid mode: ${mode}. Must be either 'development' or 'production'`);
+    if (!['development', 'production'].includes(config.mode)) {
+      logger.error(`Invalid mode: ${config.mode}. Must be either 'development' or 'production'`);
       process.exit(1);
     }
 
-    logger.info(`Starting build in ${mode} mode`);
-    logger.info(`Entry: ${entry}`);
-    logger.info(`Output directory: ${outDir}`);
-    if (noCache) {
+    logger.info(`Starting build in ${config.mode} mode`);
+    logger.info(`Entry: ${config.entry}`);
+    logger.info(`Output directory: ${config.outDir}`);
+    if (config.noCache) {
       logger.info(`Cache: disabled`);
     }
 
     try {
-      const result = await build({ entry, mode, outDir, noCache, analyze });
+      const result = await build({
+        entry: config.entry,
+        mode: config.mode,
+        outDir: config.outDir,
+        noCache: config.noCache,
+        analyze: config.analyze,
+        publicDir: config.publicDir,
+        alias: config.alias,
+      });
       logger.success(`Build completed in ${result.time}ms`);
       logger.info(`Generated ${result.assets.length} asset(s):`);
       result.assets.forEach(asset => {
@@ -64,28 +86,35 @@ program
     }
   });
 
-// ── Subcommand: boltpack dev <entry>  (dev server + HMR) ────────────
 program
   .command('dev <entry>')
   .description('Start a dev server with HMR')
-  .option('-p, --port <port>', 'Dev server port', '3000')
+  .option('-p, --port <port>', 'Dev server port')
   .option('-o, --out-dir <dir>', 'Output directory', 'dist')
   .option('--no-cache', 'Disable build cache')
   .action(async (entry, options) => {
-    const port = parseInt(options.port, 10);
+    const config = await getMergedConfig(options, entry);
+    const port = config.port;
+
     if (isNaN(port) || port < 1 || port > 65535) {
-      logger.error(`Invalid port: ${options.port}. Must be a number between 1 and 65535`);
+      logger.error(`Invalid port: ${port}. Must be a number between 1 and 65535`);
       process.exit(1);
     }
 
-    const noCache = !options.cache;
-
-    if (noCache) {
+    if (config.noCache) {
       logger.info(`Cache: disabled`);
     }
 
     try {
-      await dev({ entry, port, outDir: options.outDir, noCache });
+      await dev({
+        entry: config.entry,
+        port,
+        outDir: config.outDir,
+        noCache: config.noCache,
+        proxy: config.proxy,
+        alias: config.alias,
+        publicDir: config.publicDir,
+      });
     } catch (error) {
       logger.error('Dev server failed to start:');
       if (error.diagnostics) {
@@ -102,7 +131,6 @@ program
     }
   });
 
-// ── Subcommand: boltpack clean  (clean cache & dist) ────────────────
 program
   .command('clean')
   .description('Clean build artifacts and parcel cache')
