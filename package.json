@@ -1,0 +1,24 @@
+{
+  "name": "my-build",
+  "version": "0.0.1",
+  "description": "A fast frontend build CLI tool based on Parcel Node API and Lightning CSS",
+  "main": "src/build.js",
+  "bin": {
+    "my-build": "./bin/my-build.js"
+  },
+  "type": "module",
+  "scripts": {
+    "test": "node bin/my-build.js test/fixtures/index.html"
+  },
+  "dependencies": {
+    "@parcel/core": "^2.12.0",
+    "@parcel/config-default": "^2.12.0",
+    "chalk": "^5.3.0",
+    "commander": "^12.1.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "author": "",
+  "license": "MIT"
+}
