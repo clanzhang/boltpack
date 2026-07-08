@@ -7,6 +7,9 @@ import { build } from '../src/build.js';
 import { dev } from '../src/dev.js';
 import { clean } from '../src/clean.js';
 import { loadConfig } from '../src/config.js';
+import { buildSSR } from '../src/ssr.js';
+import { resolvePlugins } from '../src/plugins.js';
+import { detectWorkspace, getBuildOrder } from '../src/workspace.js';
 import { logger } from '../src/utils/logger.js';
 
 const program = new Command();
@@ -28,6 +31,8 @@ async function getMergedConfig(cliOptions, entry = null) {
     ...(cliOptions.port !== undefined ? { port: parseInt(cliOptions.port, 10) } : {}),
     ...(cliOptions.analyze !== undefined ? { analyze: cliOptions.analyze } : {}),
     ...(cliOptions.lib !== undefined ? { lib: cliOptions.lib } : {}),
+    ...(cliOptions.ssr !== undefined ? { ssr: cliOptions.ssr } : {}),
+    ...(cliOptions.routes !== undefined ? { routes: cliOptions.routes.split(',').map(s => s.trim()).filter(Boolean) } : {}),
     noCache,
   };
 }
@@ -56,6 +61,8 @@ program
   .option('--no-cache', 'Disable build cache')
   .option('-a, --analyze', 'Bundle size analysis (production only)')
   .option('--lib', 'Library mode — emit ESM + CJS + .d.ts from a JS/TS entry')
+  .option('--ssr', 'SSR/SSG — dual client+server build with prerendering')
+  .option('--routes <routes>', 'Comma-separated routes to prerender (with --ssr)', '/')
   .action(async (entry, options) => {
     if (!entry) {
       await interactive();
@@ -186,25 +193,57 @@ async function runBuild(entry, options) {
     process.exit(1);
   }
 
-  logger.intro(`${pc.bold(config.lib ? 'library build' : 'build')} ${pc.dim(`· ${config.mode}`)}`);
+  // ── Resolve plugins from config (factories / objects / paths) ──
+  const plugins = await resolvePlugins(config.plugins || [], process.cwd());
+
+  // ── Workspace detection: build shared libs before the app ──
+  const workspace = detectWorkspace(process.cwd());
+  if (workspace) {
+    const order = getBuildOrder(workspace);
+    logger.info(`workspace: ${workspace.packages.length} packages · ${workspace.manager}`);
+    logger.detail(`build order: ${order.map(pkg => pkg.name).join(' → ')}`);
+    // Note: for a single-app build we only build the requested entry.
+    // Full workspace builds iterate `order` and invoke build() per package,
+    // skipping the one matching `config.entry`.
+  }
+
+  const isSSR = config.ssr;
+  logger.intro(`${pc.bold(isSSR ? 'ssr build' : config.lib ? 'library build' : 'build')} ${pc.dim(`· ${config.mode}`)}`);
   logger.kv('entry', config.entry);
   logger.kv('outDir', config.outDir);
   if (config.lib) logger.kv('targets', 'esm + cjs + d.ts');
+  if (isSSR) logger.kv('ssr', `client + server · routes ${config.routes.join(',')}`);
   if (config.analyze) logger.kv('analyze', 'on');
   if (config.noCache) logger.kv('cache', 'off');
 
   try {
-    const result = await build({
-      entry: config.entry,
-      mode: config.mode,
-      outDir: config.outDir,
-      noCache: config.noCache,
-      analyze: config.analyze,
-      publicDir: config.publicDir,
-      alias: config.alias,
-      lib: config.lib,
-    });
-    printBuildResult(result);
+    if (isSSR) {
+      const result = await buildSSR({
+        entry: config.entry,
+        outDir: config.outDir,
+        mode: config.mode,
+        noCache: config.noCache,
+        routes: config.routes,
+      });
+      logger.section('Output');
+      logger.assets([...result.clientAssets, ...result.htmlFiles]);
+      logger.blank();
+      logger.success(`SSR built in ${pc.bold(`${result.time}ms`)}`);
+      logger.outro('done.');
+    } else {
+      const result = await build({
+        entry: config.entry,
+        mode: config.mode,
+        outDir: config.outDir,
+        noCache: config.noCache,
+        analyze: config.analyze,
+        publicDir: config.publicDir,
+        alias: config.alias,
+        lib: config.lib,
+        plugins,
+      });
+      printBuildResult(result);
+    }
   } catch (error) {
     logger.blank();
     printDiagnostics(error);

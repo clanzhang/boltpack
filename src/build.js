@@ -9,6 +9,7 @@ import { logger } from './utils/logger.js';
 import { getCustomConfigPath } from './config-loader.js';
 import { generateDeclarations } from './typecheck.js';
 import { ensureAtomicCssPostCss } from './atomic-css.js';
+import { PluginManager, PluginContext } from './plugins.js';
 
 const require = createRequire(import.meta.url);
 const { setAliasConfig } = require('./parcel-config/resolver-alias.cjs');
@@ -90,6 +91,7 @@ export async function build({
   publicDir = 'public',
   alias = {},
   lib = false,
+  plugins = [],
 }) {
   const startTime = Date.now();
   const projectRoot = process.cwd();
@@ -108,7 +110,18 @@ export async function build({
   if (hasAlias) setAliasConfig(alias, projectRoot);
   const configPath = getCustomConfigPath(alias);
 
+  // ── Plugin lifecycle: setup (parallel) ──
+  const manager = new PluginManager(plugins);
+  const ctx = new PluginContext({ cwd: projectRoot, mode, outDir: outDirPath, env: { NODE_ENV: mode } });
+  if (manager.plugins.length) {
+    logger.kv('plugins', manager.names);
+    await manager.setup(ctx);
+  }
+
   cleanOutDir(outDir);
+
+  // ── Plugin lifecycle: beforeBuild (serial) ──
+  if (manager.plugins.length) await manager.beforeBuild(ctx);
 
   const options = lib
     ? buildLibOptions({ entryFilePath, outDirPath, noCache, isProduction })
@@ -132,9 +145,35 @@ export async function build({
   const { bundleGraph } = await bundler.run();
 
   const assets = [];
+  const assetDescriptors = [];
   bundleGraph.getBundles().forEach(bundle => {
-    assets.push(path.relative(projectRoot, bundle.filePath));
+    const rel = path.relative(projectRoot, bundle.filePath);
+    assets.push(rel);
+    // Only feed text-like assets through the transform pipeline
+    if (/\.(js|mjs|cjs|css|html|json|svg)$/.test(bundle.filePath)) {
+      const code = fs.existsSync(bundle.filePath) ? fs.readFileSync(bundle.filePath, 'utf8') : '';
+      assetDescriptors.push({ fileName: rel, filePath: bundle.filePath, code, type: bundle.type });
+    }
   });
+  ctx.assets = assetDescriptors;
+
+  // ── Plugin lifecycle: transform (serial pipeline) ──
+  if (manager.plugins.length && assetDescriptors.length) {
+    const transformed = await manager.transformAssets(assetDescriptors);
+    for (const asset of transformed) {
+      if (asset && asset.filePath && typeof asset.code === 'string') {
+        fs.writeFileSync(asset.filePath, asset.code);
+      }
+    }
+  }
+
+  // ── Plugin lifecycle: afterBuild (parallel) ──
+  if (manager.plugins.length) {
+    await manager.afterBuild(ctx);
+    if (ctx.emittedFiles.length) {
+      ctx.emittedFiles.forEach(f => logger.success(`plugin emitted: ${f}`));
+    }
+  }
 
   // ── Library mode: emit .d.ts via tsc --emitDeclarationOnly ──
   if (lib) {
