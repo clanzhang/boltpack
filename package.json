@@ -4,11 +4,11 @@
   "description": "A fast frontend build CLI tool based on Parcel Node API and Lightning CSS",
   "main": "src/build.js",
   "bin": {
-    "boltpack": "./bin/build.js"
+    "boltpack": "./bin/index.js"
   },
   "type": "module",
   "scripts": {
-    "test": "node bin/build.js test/fixtures/index.html"
+    "test": "node bin/index.js test/fixtures/index.html"
   },
   "dependencies": {
     "@parcel/core": "^2.12.0",
