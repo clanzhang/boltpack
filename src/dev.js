@@ -10,7 +10,7 @@ function timestamp() {
   return new Date().toTimeString().slice(0, 8);
 }
 
-export async function dev({ entry, port, outDir }) {
+export async function dev({ entry, port, outDir, noCache = false }) {
   const entryFilePath = path.resolve(process.cwd(), entry);
   const outDirPath = path.resolve(process.cwd(), outDir);
   const configPath = path.resolve(__dirname, '..', 'node_modules', '@parcel', 'config-default');
@@ -20,6 +20,7 @@ export async function dev({ entry, port, outDir }) {
     config: configPath,
     mode: 'development',
     outDir: outDirPath,
+    shouldDisableCache: noCache,
     serveOptions: {
       port,
       host: 'localhost',

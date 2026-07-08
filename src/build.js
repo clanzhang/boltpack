@@ -1,10 +1,11 @@
 import { Parcel } from '@parcel/core';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { cleanOutDir } from './clean.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-export async function build({ entry, mode, outDir }) {
+export async function build({ entry, mode, outDir, noCache = false }) {
   const startTime = Date.now();
 
   const entryFilePath = path.resolve(process.cwd(), entry);
@@ -12,11 +13,14 @@ export async function build({ entry, mode, outDir }) {
 
   const configPath = path.resolve(__dirname, '..', 'node_modules', '@parcel', 'config-default');
 
+  cleanOutDir(outDir);
+
   const options = {
     entries: entryFilePath,
     config: configPath,
     mode: mode === 'production' ? 'production' : 'development',
     outDir: outDirPath,
+    shouldDisableCache: noCache,
     targets: {
       browser: {
         distDir: outDirPath
