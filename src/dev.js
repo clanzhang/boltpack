@@ -5,9 +5,11 @@ import http from 'node:http';
 import { fileURLToPath } from 'url';
 import { createRequire } from 'module';
 import { createProxyMiddleware } from 'http-proxy-middleware';
-import chalk from 'chalk';
+import pc from 'picocolors';
 import { logger } from './utils/logger.js';
 import { getCustomConfigPath } from './config-loader.js';
+import { startTypeWatch } from './typecheck.js';
+import { ensureAtomicCssPostCss, detectAtomicCss } from './atomic-css.js';
 
 const require = createRequire(import.meta.url);
 const { setAliasConfig } = require('./parcel-config/resolver-alias.cjs');
@@ -16,20 +18,13 @@ process.env.NODE_ENV = 'development';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-function timestamp() {
-  return new Date().toTimeString().slice(0, 8);
-}
-
 function findFreePort(startPort) {
   return new Promise((resolve, reject) => {
     const server = http.createServer();
     server.unref();
     server.on('error', (err) => {
-      if (err.code === 'EADDRINUSE') {
-        resolve(findFreePort(startPort + 1));
-      } else {
-        reject(err);
-      }
+      if (err.code === 'EADDRINUSE') resolve(findFreePort(startPort + 1));
+      else reject(err);
     });
     server.listen(startPort, '127.0.0.1', () => {
       const port = server.address().port;
@@ -46,9 +41,10 @@ export async function dev({ entry, port, outDir, noCache = false, proxy = {}, al
   const hasProxy = proxy && Object.keys(proxy).length > 0;
   const hasAlias = alias && Object.keys(alias).length > 0;
 
-  if (hasAlias) {
-    setAliasConfig(alias, projectRoot);
-  }
+  if (hasAlias) setAliasConfig(alias, projectRoot);
+
+  // ── Atomic CSS auto-wire (Tailwind / UnoCSS) ──
+  ensureAtomicCssPostCss(projectRoot);
 
   const configPath = getCustomConfigPath(alias);
 
@@ -57,17 +53,12 @@ export async function dev({ entry, port, outDir, noCache = false, proxy = {}, al
 
   if (hasProxy) {
     parcelPort = await findFreePort(port + 1);
-
     for (const [pathPrefix, target] of Object.entries(proxy)) {
       const targetStr = typeof target === 'string' ? target : target.target;
       const changeOrigin = typeof target === 'object' ? target.changeOrigin ?? true : true;
       proxyMiddlewares.push({
         path: pathPrefix,
-        middleware: createProxyMiddleware({
-          target: targetStr,
-          changeOrigin,
-          ws: true,
-        }),
+        middleware: createProxyMiddleware({ target: targetStr, changeOrigin, ws: true }),
       });
     }
   }
@@ -78,100 +69,66 @@ export async function dev({ entry, port, outDir, noCache = false, proxy = {}, al
     mode: 'development',
     outDir: outDirPath,
     shouldDisableCache: noCache,
-    env: {
-      NODE_ENV: 'development',
-    },
-    serveOptions: {
-      port: parcelPort,
-      host: 'localhost',
-    },
-    hmrOptions: {
-      port: parcelPort,
-    },
-    targets: {
-      browser: {
-        distDir: outDirPath,
-      },
-    },
+    env: { NODE_ENV: 'development' },
+    serveOptions: { port: parcelPort, host: 'localhost' },
+    hmrOptions: { port: parcelPort },
+    targets: { browser: { distDir: outDirPath } },
     defaultTargetOptions: {
-      engines: {
-        browsers: ['> 0.5%', 'last 2 versions', 'not dead'],
-      },
+      engines: { browsers: ['> 0.5%', 'last 2 versions', 'not dead'] },
     },
   });
 
-  logger.info(`Starting dev server...`);
-  logger.info(`Entry: ${entry}`);
-  logger.info(`Output directory: ${outDir}`);
-  logger.info(`Port: ${port}`);
-  if (noCache) {
-    logger.info(`Cache: disabled`);
-  }
-  if (hasAlias) {
-    logger.info(`🔗 Alias: ${Object.entries(alias).map(([k, v]) => `${k} → ${v}`).join(', ')}`);
-  }
+  logger.intro(`${pc.bold('boltpack')} ${pc.dim('dev')}`);
+  logger.kv('entry', entry);
+  logger.kv('outDir', outDir);
+  logger.kv('port', String(port));
+  if (noCache) logger.kv('cache', 'off');
+  if (hasAlias) logger.kv('alias', Object.entries(alias).map(([k, v]) => `${k}→${v}`).join(' '));
   if (hasProxy) {
-    logger.info(`🔀 Proxy:`);
-    for (const [pathPrefix, target] of Object.entries(proxy)) {
-      const targetStr = typeof target === 'string' ? target : target.target;
-      logger.info(`   ${pathPrefix} → ${targetStr}`);
+    logger.kv('proxy', '');
+    for (const [prefix, target] of Object.entries(proxy)) {
+      const t = typeof target === 'string' ? target : target.target;
+      logger.detail(`${prefix} → ${t}`);
     }
   }
+  const css = detectAtomicCss(projectRoot);
+  if (css) logger.kv('css', css.engine);
 
   let firstBuild = true;
 
   if (hasProxy) {
     const server = http.createServer((req, res) => {
-      let handled = false;
-      for (const { path: pathPrefix, middleware } of proxyMiddlewares) {
-        if (req.url.startsWith(pathPrefix)) {
-          middleware(req, res, () => {});
-          handled = true;
-          break;
-        }
+      for (const { path: prefix, middleware } of proxyMiddlewares) {
+        if (req.url.startsWith(prefix)) { middleware(req, res, () => {}); return; }
       }
-      if (!handled) {
-        const options = {
-          hostname: 'localhost',
-          port: parcelPort,
-          path: req.url,
-          method: req.method,
-          headers: req.headers,
-        };
-        const proxyReq = http.request(options, (proxyRes) => {
-          res.writeHead(proxyRes.statusCode, proxyRes.headers);
-          proxyRes.pipe(res);
-        });
-        proxyReq.on('error', () => {
-          res.writeHead(502, { 'Content-Type': 'text/plain' });
-          res.end('Bad Gateway: dev server not ready yet');
-        });
-        req.pipe(proxyReq);
-      }
+      const proxyReq = http.request({
+        hostname: 'localhost', port: parcelPort, path: req.url,
+        method: req.method, headers: req.headers,
+      }, (proxyRes) => {
+        res.writeHead(proxyRes.statusCode, proxyRes.headers);
+        proxyRes.pipe(res);
+      });
+      proxyReq.on('error', () => {
+        res.writeHead(502, { 'Content-Type': 'text/plain' });
+        res.end('Bad Gateway: dev server not ready yet');
+      });
+      req.pipe(proxyReq);
     });
 
     server.on('upgrade', (req, socket, head) => {
-      for (const { path: pathPrefix, middleware } of proxyMiddlewares) {
-        if (req.url.startsWith(pathPrefix)) {
-          if (middleware.upgrade) {
-            middleware.upgrade(req, socket, head);
-          }
+      for (const { path: prefix, middleware } of proxyMiddlewares) {
+        if (req.url.startsWith(prefix)) {
+          if (middleware.upgrade) middleware.upgrade(req, socket, head);
           return;
         }
       }
-      const options = {
-        hostname: 'localhost',
-        port: parcelPort,
-        path: req.url,
-        method: req.method,
-        headers: req.headers,
-      };
-      const proxyReq = http.request({ ...options, method: 'GET' });
-      proxyReq.on('upgrade', (proxyRes, proxySocket, proxyHead) => {
+      const proxyReq = http.request({
+        hostname: 'localhost', port: parcelPort, path: req.url,
+        method: 'GET', headers: req.headers,
+      });
+      proxyReq.on('upgrade', (proxyRes, proxySocket) => {
         socket.write('HTTP/1.1 101 Switching Protocols\r\n');
-        for (const [key, val] of Object.entries(proxyRes.headers)) {
-          socket.write(`${key}: ${val}\r\n`);
-        }
+        for (const [k, v] of Object.entries(proxyRes.headers)) socket.write(`${k}: ${v}\r\n`);
         socket.write('\r\n');
         proxySocket.pipe(socket);
         socket.pipe(proxySocket);
@@ -183,37 +140,39 @@ export async function dev({ entry, port, outDir, noCache = false, proxy = {}, al
     server.listen(port, '0.0.0.0');
   }
 
+  // ── Parallel TypeScript typecheck (non-blocking) ──
+  const typeWatcher = startTypeWatch(projectRoot);
+
   await bundler.watch((err, event) => {
-    if (err) {
-      logger.error(`Fatal error: ${err.message}`);
-      return;
-    }
+    if (err) { logger.error(`Fatal: ${err.message}`); return; }
 
     if (event.type === 'buildSuccess') {
       if (firstBuild) {
         firstBuild = false;
-        const bundleCount = event.bundleGraph.getBundles().length;
-        console.log(
-          chalk.green.bold(`\n🚀 Server running at `) +
-          chalk.cyan.underline(`http://localhost:${port}`)
-        );
-        logger.success(`Initial build completed in ${event.buildTime}ms (${bundleCount} bundles)`);
-        console.log(chalk.gray('   Watching for changes...\n'));
+        const bundles = event.bundleGraph.getBundles().length;
+        logger.blank();
+        logger.success(`Ready in ${event.buildTime}ms · ${bundles} bundles`);
+        logger.raw(`  ${pc.cyan.underline(`http://localhost:${port}`)}`);
+        logger.blank();
+        logger.raw(`  ${pc.dim('watching for changes…')}`);
+        logger.blank();
       } else {
-        console.log(
-          chalk.cyan(`🔄 [${timestamp()}] `) +
-          chalk.green(`Rebuilt successfully in ${event.buildTime}ms`)
-        );
+        logger.timestamp(pc.green(`rebuilt in ${event.buildTime}ms`), 'success');
       }
     } else if (event.type === 'buildFailure') {
-      console.log(chalk.red(`❌ [${timestamp()}] Build failed:`));
-      event.diagnostics.forEach(diagnostic => {
-        logger.error(`  - ${diagnostic.message}`);
-        if (diagnostic.codeFrame) {
-          console.log(chalk.red(`\n${diagnostic.codeFrame}`));
-        }
-      });
-      console.log(chalk.gray('   Fix the error and save to retry...\n'));
+      logger.blank();
+      logger.timestamp(pc.red('build failed'), 'error');
+      event.diagnostics.forEach(d => logger.diagnostic(d.message, d.codeFrame));
+      logger.raw(`  ${pc.dim('fix the error and save to retry…')}`);
+      logger.blank();
     }
   });
+
+  // ── Ensure parallel typecheck never blocks exit ──
+  const cleanup = () => {
+    if (typeWatcher) typeWatcher.stop();
+    process.exit(0);
+  };
+  process.on('SIGINT', cleanup);
+  process.on('SIGTERM', cleanup);
 }

@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import chalk from 'chalk';
+import { logger } from './utils/logger.js';
 
 const PARCEL_CACHE_DIR = '.parcel-cache';
 
@@ -15,28 +15,20 @@ export function clean({ outDir = 'dist' } = {}) {
       fs.rmSync(cacheDir, { recursive: true, force: true });
       removed.push('.parcel-cache');
     }
-  } catch (err) {
-    // 静默忽略删除错误，保证命令始终安全
-  }
+  } catch {}
 
   try {
     if (fs.existsSync(distDir)) {
       fs.rmSync(distDir, { recursive: true, force: true });
       removed.push(outDir);
     }
-  } catch (err) {
-    // 静默忽略删除错误
-  }
+  } catch {}
 
   if (removed.length > 0) {
-    console.log(
-      chalk.green.bold(`✨ 缓存与产物已彻底清理，你的项目现在清爽无比！`)
-    );
-    removed.forEach(item => {
-      console.log(chalk.gray(`   - ${item}`));
-    });
+    logger.success('Cleaned');
+    removed.forEach(item => logger.detail(item));
   } else {
-    console.log(chalk.gray('✨ 项目本来就很干净，无事可做～'));
+    logger.info('Already clean — nothing to do');
   }
 }
 
@@ -44,8 +36,5 @@ export function cleanOutDir(outDir) {
   const distDir = path.resolve(process.cwd(), outDir);
   try {
     fs.rmSync(distDir, { recursive: true, force: true });
-    console.log(chalk.gray('🧹 已清空历史构建产物'));
-  } catch (err) {
-    // 静默忽略
-  }
+  } catch {}
 }

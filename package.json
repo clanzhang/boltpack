@@ -1,7 +1,7 @@
 {
   "name": "boltpack",
-  "version": "0.0.1",
-  "description": "A fast frontend build CLI tool based on Parcel Node API and Lightning CSS",
+  "version": "0.1.0",
+  "description": "A fast frontend build & dev CLI tool based on Parcel Node API and Lightning CSS",
   "main": "src/build.js",
   "bin": {
     "boltpack": "./bin/index.js"
@@ -11,12 +11,17 @@
     "test": "node bin/index.js test/fixtures/index.html"
   },
   "dependencies": {
+    "@clack/prompts": "^0.7.0",
     "@parcel/config-default": "^2.12.0",
     "@parcel/core": "^2.12.0",
     "@parcel/reporter-bundle-analyzer": "^2.16.4",
     "chalk": "^5.3.0",
     "commander": "^12.1.0",
-    "http-proxy-middleware": "^4.2.0"
+    "http-proxy-middleware": "^4.2.0",
+    "picocolors": "^1.1.1"
+  },
+  "optionalDependencies": {
+    "typescript": "^5.9.3"
   },
   "engines": {
     "node": ">=18.0.0"
