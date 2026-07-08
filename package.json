@@ -11,8 +11,9 @@
     "test": "node bin/index.js test/fixtures/index.html"
   },
   "dependencies": {
-    "@parcel/core": "^2.12.0",
     "@parcel/config-default": "^2.12.0",
+    "@parcel/core": "^2.12.0",
+    "@parcel/reporter-bundle-analyzer": "^2.16.4",
     "chalk": "^5.3.0",
     "commander": "^12.1.0"
   },

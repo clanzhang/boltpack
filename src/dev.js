@@ -4,6 +4,9 @@ import { fileURLToPath } from 'url';
 import chalk from 'chalk';
 import { logger } from './utils/logger.js';
 
+// 强制注入开发环境变量
+process.env.NODE_ENV = 'development';
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 function timestamp() {
@@ -21,6 +24,9 @@ export async function dev({ entry, port, outDir, noCache = false }) {
     mode: 'development',
     outDir: outDirPath,
     shouldDisableCache: noCache,
+    env: {
+      NODE_ENV: 'development',
+    },
     serveOptions: {
       port,
       host: 'localhost',

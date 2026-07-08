@@ -19,13 +19,14 @@ program
   .option('-m, --mode <mode>', 'Build mode: development or production', 'production')
   .option('-o, --out-dir <dir>', 'Output directory', 'dist')
   .option('--no-cache', 'Disable build cache')
+  .option('-a, --analyze', 'Enable bundle size analysis (production mode only)')
   .action(async (entry, options) => {
     if (!entry) {
       program.help();
       return;
     }
 
-    const { mode, outDir, cache } = options;
+    const { mode, outDir, cache, analyze } = options;
     const noCache = !cache;
 
     if (!['development', 'production'].includes(mode)) {
@@ -41,7 +42,7 @@ program
     }
 
     try {
-      const result = await build({ entry, mode, outDir, noCache });
+      const result = await build({ entry, mode, outDir, noCache, analyze });
       logger.success(`Build completed in ${result.time}ms`);
       logger.info(`Generated ${result.assets.length} asset(s):`);
       result.assets.forEach(asset => {
