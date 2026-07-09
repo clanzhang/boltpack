@@ -436,4 +436,7 @@ boltpack/
 └── package.json
 ```
 
+## License
+
+[MIT](LICENSE)
 
