@@ -152,7 +152,7 @@ export async function dev({ entry, port, outDir, noCache = false, proxy = {}, al
         const bundles = event.bundleGraph.getBundles().length;
         logger.blank();
         logger.success(`Ready in ${event.buildTime}ms · ${bundles} bundles`);
-        logger.raw(`  ${pc.cyan.underline(`http://localhost:${port}`)}`);
+        logger.raw(`  ${pc.underline(pc.cyan(`http://localhost:${port}`))}`);
         logger.blank();
         logger.raw(`  ${pc.dim('watching for changes…')}`);
         logger.blank();
