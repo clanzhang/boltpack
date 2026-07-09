@@ -1,5 +1,6 @@
 import { Parcel } from '@parcel/core';
 import path from 'node:path';
+import fs from 'node:fs';
 import { fileURLToPath } from 'url';
 import pc from 'picocolors';
 import { logger } from './utils/logger.js';
