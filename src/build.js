@@ -39,7 +39,6 @@ function assertLibEntry(entry) {
 }
 
 function buildLibOptions({ entryFilePath, outDirPath, noCache, isProduction }) {
-  // Dual-target: CJS (main) + ESM (module), scope-hoisted, sourcemapped.
   return {
     entries: entryFilePath,
     config: path.resolve(__dirname, '..', 'node_modules', '@parcel', 'config-default'),
@@ -48,15 +47,15 @@ function buildLibOptions({ entryFilePath, outDirPath, noCache, isProduction }) {
     shouldDisableCache: noCache,
     env: { NODE_ENV: isProduction ? 'production' : 'development' },
     targets: {
-      main: {
+      cjs: {
         outputFormat: 'commonjs',
-        distDir: outDirPath,
+        distDir: path.join(outDirPath, 'cjs'),
         sourceMap: true,
         scopeHoist: true,
       },
-      module: {
+      esm: {
         outputFormat: 'esmodule',
-        distDir: outDirPath,
+        distDir: path.join(outDirPath, 'esm'),
         sourceMap: true,
         scopeHoist: true,
       },
