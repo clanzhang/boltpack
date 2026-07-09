@@ -1,10 +1,10 @@
 import { Parcel } from '@parcel/core';
-import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'url';
 import pc from 'picocolors';
 import { logger } from './utils/logger.js';
 import { cleanOutDir } from './clean.js';
+import { renderSSR } from './render.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_CONFIG = path.resolve(__dirname, '..', 'node_modules', '@parcel', 'config-default');
@@ -113,13 +113,12 @@ export async function buildSSR({ entry, outDir = 'dist', mode = 'production', no
 
   // Prerender static HTML
   logger.step('prerendering routes…');
-  const htmlFiles = await prerender({
-    serverEntryOut,
+  const htmlFiles = await renderSSR({
+    serverEntryPath: serverEntryOut,
     clientDir,
     routes,
-    projectRoot,
   });
-  htmlFiles.forEach(f => logger.detail(f));
+  htmlFiles.forEach(f => logger.detail(path.relative(projectRoot, f)));
 
   return {
     clientDir,
@@ -130,68 +129,6 @@ export async function buildSSR({ entry, outDir = 'dist', mode = 'production', no
     time: Date.now() - startTime,
   };
 }
-
-/**
- * Import the server bundle, call render() for each route, write HTML.
- * Falls back gracefully if the entry has no `render` export (SSG-only).
- */
-async function prerender({ serverEntryOut, clientDir, routes, projectRoot }) {
-  const serverUrl = pathToFileUrl(serverEntryOut);
-  const mod = await import(serverUrl);
-  const render = mod.render || mod.default?.render;
-
-  if (typeof render !== 'function') {
-    logger.warn('server entry has no `render` export — skipping prerender (SSR-mode only)');
-    return [];
-  }
-
-  const htmlShell = readHtmlShell(clientDir);
-  const written = [];
-
-  for (const route of routes) {
-    const props = { url: route, path: route };
-    let content;
-    try {
-      content = await render(props);
-    } catch (err) {
-      logger.error(`render failed for ${route}: ${err.message}`);
-      continue;
-    }
-
-    const html = injectShell(htmlShell, content, route);
-    const outFile = routeToFilePath(clientDir, route);
-    fs.mkdirSync(path.dirname(outFile), { recursive: true });
-    fs.writeFileSync(outFile, html);
-    written.push(path.relative(projectRoot, outFile));
-  }
-  return written;
-}
-
-function pathToFileUrl(p) {
-  return `file://${p}`;
-}
-
-function readHtmlShell(clientDir) {
-  const indexHtml = path.join(clientDir, 'index.html');
-  return fs.existsSync(indexHtml) ? fs.readFileSync(indexHtml, 'utf8') : '<!DOCTYPE html><html><head><meta charset="utf-8"></head><body><!--app--></body></html>';
-}
-
-function injectShell(shell, content, route) {
-  if (shell.includes('<!--app-->')) {
-    return shell.replace('<!--app-->', content);
-  }
-  if (shell.includes('<div id="root"></div>')) {
-    return shell.replace('<div id="root"></div>', `<div id="root">${content}</div>`);
-  }
-  return shell.replace('</body>', `${content}</body>`);
-}
-
-function routeToFilePath(clientDir, route) {
-  if (route === '/' || route === '') return path.join(clientDir, 'index.html');
-  const clean = route.replace(/^\//, '').replace(/\/$/, '');
-  return path.join(clientDir, clean, 'index.html');
-}
-
 /**
  * Dev-mode SSR: rebuild on change and re-prerender.
  * Reuses Parcel watch() for the server bundle; client is served by the
