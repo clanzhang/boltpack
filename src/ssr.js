@@ -27,7 +27,6 @@ const DEFAULT_CONFIG = path.resolve(__dirname, '..', 'node_modules', '@parcel', 
  */
 
 function resolveEntry(cwd, entry) {
-  // Accept either an explicit server entry or derive `entry-server.*` from the client entry.
   const ext = path.extname(entry);
   const base = entry.slice(0, -ext.length || undefined);
   const candidates = [
@@ -35,6 +34,16 @@ function resolveEntry(cwd, entry) {
     `${base}-server${ext}`,
     entry.replace(/index\.(html|js|ts|tsx|jsx)$/, 'entry-server.$1'),
   ].filter(Boolean);
+
+  if (ext === '.html') {
+    candidates.push(
+      `${base}-server.js`,
+      `${base}-server.ts`,
+      entry.replace(/index\.html$/, 'entry-server.js'),
+      entry.replace(/index\.html$/, 'entry-server.ts'),
+    );
+  }
+
   for (const c of candidates) {
     const abs = path.resolve(cwd, c);
     if (fs.existsSync(abs)) return abs;
@@ -51,7 +60,7 @@ function parcelBuild({ entry, outDir, targetEnv, mode, noCache }) {
     shouldDisableCache: noCache,
     env: { NODE_ENV: mode },
     targets: targetEnv === 'node'
-      ? { node: { outputFormat: 'commonjs', distDir: outDir, sourceMap: true, scopeHoist: true, includeNodeModules: true } }
+      ? { node: { outputFormat: 'commonjs', distDir: outDir, sourceMap: true, scopeHoist: false, includeNodeModules: true } }
       : { browser: { distDir: outDir } },
     defaultTargetOptions: {
       engines: { browsers: ['> 0.5%', 'last 2 versions', 'not dead'] },

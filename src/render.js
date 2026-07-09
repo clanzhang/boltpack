@@ -1,7 +1,23 @@
 import fs from 'fs-extra';
 import path from 'path';
 import pc from 'picocolors';
+import vm from 'node:vm';
 import { logger } from './utils/logger.js';
+
+function loadServerModule(entryPath) {
+  const code = fs.readFileSync(entryPath, 'utf8');
+  const context = {
+    console,
+    module: { exports: {} },
+    exports: {},
+    require: () => ({}),
+    globalThis: {},
+    __dirname: path.dirname(entryPath),
+    __filename: entryPath,
+  };
+  vm.runInNewContext(code, context);
+  return context.module.exports || context.exports;
+}
 
 export async function renderSSR({ serverEntryPath, clientDir, routes }) {
   const htmlFiles = [];
@@ -14,10 +30,12 @@ export async function renderSSR({ serverEntryPath, clientDir, routes }) {
 
   let render;
   try {
-    const mod = await import(`file://${serverEntryPath}`);
+    const mod = loadServerModule(serverEntryPath);
     render = mod.render || mod.default?.render;
+    
     if (typeof render !== 'function') {
-      logger.warn('server entry has no `render` export — skipping prerender');
+      const keys = Object.keys(mod);
+      logger.warn(`server entry exports: ${keys.join(', ')} — no 'render' found`);
       return [];
     }
   } catch (err) {
@@ -50,14 +68,14 @@ async function readHtmlShell(clientDir) {
 }
 
 function injectContent(shell, content) {
-  if (shell.includes('<div id="app"></div>')) {
-    return shell.replace('<div id="app"></div>', `<div id="app">${content}</div>`);
+  if (/<div\s+id=["']?app["']?\s*><\/div>/.test(shell)) {
+    return shell.replace(/<div\s+id=["']?app["']?\s*><\/div>/, content);
   }
   if (shell.includes('<!--app-->')) {
     return shell.replace('<!--app-->', content);
   }
-  if (shell.includes('<div id="root"></div>')) {
-    return shell.replace('<div id="root"></div>', `<div id="root">${content}</div>`);
+  if (/<div\s+id=["']?root["']?\s*><\/div>/.test(shell)) {
+    return shell.replace(/<div\s+id=["']?root["']?\s*><\/div>/, content);
   }
   return shell.replace('</body>', `${content}</body>`);
 }
