@@ -13,6 +13,7 @@ import { detectWorkspace, getBuildOrder } from '../src/workspace.js';
 import { logger } from '../src/utils/logger.js';
 
 const program = new Command();
+const DEFAULT_ENTRY = 'src/index.html';
 
 program
   .name('boltpack')
@@ -73,13 +74,14 @@ program
 
 // ─── Dev ───────────────────────────────────────────────────────────────────
 program
-  .command('dev <entry>')
+  .command('dev [entry]')
   .description('Start dev server with HMR + parallel typecheck')
   .option('-p, --port <port>', 'Dev server port')
   .option('-o, --out-dir <dir>', 'Output directory', 'dist')
   .option('--no-cache', 'Disable build cache')
   .action(async (entry, options) => {
-    const config = await getMergedConfig(options, entry);
+    const resolvedEntry = entry ?? DEFAULT_ENTRY;
+    const config = await getMergedConfig(options, resolvedEntry);
     const port = config.port;
     if (isNaN(port) || port < 1 || port > 65535) {
       logger.error(`Invalid port: ${port}`);
